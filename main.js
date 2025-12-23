@@ -1,3 +1,6 @@
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPixelatedPass } from 'three/addons/postprocessing/RenderPixelatedPass.js';
 const canvas = document.getElementById('mainScreen');
 
 //Create scene with THREE
@@ -8,6 +11,13 @@ camera.lookAt(0, 0, 0);
 //Make the renderer
 const renderer = new THREE.WebGLRenderer({ canvas: canvas });
 renderer.setSize(window.innerWidth, window.innerHeight);
+
+//Shaders
+
+const composer = new EffectComposer( renderer );
+const pixelPass = new RenderPixelatedPass( 3, scene, camera );
+composer.addPass(pixelPass);
+
 
 //Create cones, they will be used to react to the melody of the song
 const geometry = new THREE.ConeGeometry( 2, 2, 3);
@@ -33,9 +43,9 @@ var up4 = true;
 //int melody - some variable that is increased by when the melody is going
 
 //particle cloud around the center
-const PARTICLE_COUNT = 2000;
+const PARTICLE_COUNT = 5000;
 const RING_RADIUS = 5; 
-const RING_THICKNESS = 4; 
+const RING_THICKNESS = 2; 
 
 const particleData = []; 
 
@@ -53,7 +63,7 @@ function createParticleRing(scene) {
         
         const x = Math.cos(angle) * radius;
         const z = Math.sin(angle) * radius;
-        const y = 0; // Flat on the floor
+        const y = 0;
 
         positions[i * 3] = x;
         positions[i * 3 + 1] = y;
@@ -71,7 +81,7 @@ function createParticleRing(scene) {
     //material
     const material = new THREE.PointsMaterial({
         color: 0x00ff00, 
-        size: 0.15,
+        size: 0.001,
         transparent: true,
         opacity: 0.8
     });
@@ -170,7 +180,7 @@ function animate() {
 
   updateParticleRing(partCloud, bass)
 
-  renderer.render(scene, camera);
+  composer.render();
 }
 
 animate();
