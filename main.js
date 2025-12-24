@@ -13,7 +13,6 @@ const renderer = new THREE.WebGLRenderer({ canvas: canvas });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 //Shaders
-
 const composer = new EffectComposer( renderer );
 const pixelPass = new RenderPixelatedPass( 3, scene, camera );
 composer.addPass(pixelPass);
@@ -122,6 +121,7 @@ function animate() {
   cone4.rotation.y += 0.01;
 
   //Cone sizing, change based on the melody
+  /*
   if(up1){
 	  cone1.scale.y+=0.05;
 	  if(cone1.scale.y>=3) //*melody
@@ -163,6 +163,7 @@ function animate() {
 		  up3 = true;
 	  }
   }
+    */
 
   if(up4){
 	  bass+=0.01
@@ -178,6 +179,7 @@ function animate() {
 	  }
   }
 
+  
   updateParticleRing(partCloud, bass)
 
   composer.render();
