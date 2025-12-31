@@ -3,11 +3,27 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPixelatedPass } from 'three/addons/postprocessing/RenderPixelatedPass.js';
 const canvas = document.getElementById('mainScreen');
 
+
+
 //Create scene with THREE
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 10, 0); 
 camera.lookAt(0, 0, 0);
+
+//Center and style the spotify login button
+document.getElementById("login-button").style.position = 'absolute';
+document.getElementById("login-button").style.zIndex = '1';
+document.getElementById("login-button").style.top = '45%';
+document.getElementById("login-button").style.left = '43%';   
+document.getElementById("login-button").style.opacity = '0.8'; 
+document.getElementById("login-button").style.border = 'none';
+document.getElementById("login-button").style.padding = '10px 20px';
+document.getElementById("login-button").style.fontSize = '24px';
+document.getElementById("login-button").style.backgroundColor = '#31493aff'; 
+document.getElementById("login-button").style.color = 'white'; 
+document.getElementById("login-button").style.fontFamily = 'monospace';
+
 //Make the renderer
 const renderer = new THREE.WebGLRenderer({ canvas: canvas });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -16,6 +32,13 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 const composer = new EffectComposer( renderer );
 const pixelPass = new RenderPixelatedPass( 3, scene, camera );
 composer.addPass(pixelPass);
+
+//Check if the user has loged into spotify
+let isMusicPlaying = false;
+window.addEventListener('spotifyStateChange', (event) => {
+    //Update local variable based on the broadcast data
+    isMusicPlaying = event.detail.isPlaying;
+});
 
 
 //Create cones, they will be used to react to the melody of the song
@@ -111,6 +134,8 @@ var bass = 0;
 //animate everything
 function animate() {
   requestAnimationFrame(animate); 
+    //Only animate if music is playing
+  if(isMusicPlaying){
   cone1.rotation.x += 0.01; //* rotationSpeed for all rotates
   cone1.rotation.y += 0.01;
   cone2.rotation.x -= 0.01;
@@ -181,7 +206,7 @@ function animate() {
 
   
   updateParticleRing(partCloud, bass)
-
+  }
   composer.render();
 }
 
