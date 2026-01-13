@@ -23,6 +23,11 @@ const currentToken = {
     const now = new Date();
     const expiry = new Date(now.getTime() + (expires_in * 1000));
     localStorage.setItem('expires', expiry);
+  },
+  isExpired: function() {
+    const expiry = localStorage.getItem('expires');
+    if (!expiry) return true;
+    return new Date() > new Date(expiry);
   }
 };
 
@@ -65,17 +70,7 @@ async function redirectToSpotifyAuthorize() {
   window.location.href = authUrl.toString(); // Redirect the user to the authorization server for login
 }
 
-// Handles the callback from Spotify after the user logs in and exchanges the authorization code for an access token
-const args = new URLSearchParams(window.location.search);
-const code = args.get('code');
-//If there is a code, it means the user has loggin in to spotify
-if (code) {
-    const token = await getToken(code);
-    currentToken.save(token);
-    if(button){
-      button.style.display = 'none'; // Hide the login button after successful login
-    }
-}
+
 
 async function getToken(code) {
   const code_verifier = localStorage.getItem('code_verifier');
@@ -107,6 +102,10 @@ async function getPlaybackState() {
     }
   });
 
+  if(response.status === 401){
+    throw new Error("Bad token");
+  }
+
   // Handle the case where the player is inactive (no active device)
   if (response.status === 204 || response.status > 400) {
     return { is_playing: false };
@@ -123,6 +122,7 @@ async function getPlaybackState() {
 }
 
 
+function startPolling(){
 // Poll Spotify every second
 setInterval(async () => {
     // Only check if we have a valid token
@@ -142,12 +142,52 @@ setInterval(async () => {
             //broadcast the event to the window so the animation script can listen to it
             window.dispatchEvent(event);
             
-        } catch (error) {
+        } 
+        catch (error) {
             console.error("Error polling Spotify:", error);
+            localStorage.clear();
+            window.location.reload();
         }
     }
 }, 1000);
+}
 
+async function onPageLoad(){
+  // Handles the callback from Spotify after the user logs in and exchanges the authorization code for an access token
+const args = new URLSearchParams(window.location.search);
+const code = args.get('code');
+
+//Check if the user is already loggin in to spotify and the token is still valid
+if (currentToken.access_token && !currentToken.isExpired()) {
+    if(button){
+      console.log("Logged in and ready");
+      button.style.display = 'none'; // Hide the login button if already logged in
+    }
+    startPolling(); //Start animating the visuals
+    return;
+  }
+  
+//If the user just returned from spotify, and login was successful
+if (code) {
+    const token = await getToken(code);
+    currentToken.save(token);
+
+    //Clean the url so the code cannot be seen
+    const url = new URL(window.location.href);
+    url.searchParams.delete("code");
+    window.history.replaceState({}, document.title, url.toString());
+
+    if(button){
+      console.log("Not tapped in");
+      button.style.display = 'none'; // Hide the login button after successful login
+    }
+    startPolling(); //Start animating the visuals
+}
+
+
+}
+
+onPageLoad();
 
 
 
