@@ -7,9 +7,11 @@ A music visualizer that connects to your Spotify account and reacts to your musi
 * Open the project in VS Code.
 * Ensure you have the Live Server extension by Ritwick Dey installed.
 * Right-click on `index.html` and select **"Open with Live Server."**
+* Connect to your Spotify account when prompted
+* For the best effects, share your entire screen and share system audio when prompted
 
 ## Project Status
-**IMPORTANT NOTE:** This project is currently a work in progress. Spotify deprecated the specific API endpoints I used to pull live song analysis data. Because of this, the visualizer does not currently move with the music as intended. I am currently looking for a workaround or a new API to restore the functionality.
+* Workaround for Spotify API deprication has been implemented. Uses system audio to analyze bpm, bass, and melody peaks.
 
 ## Features
 * Connects to your active Spotify session.
@@ -17,4 +19,4 @@ A music visualizer that connects to your Spotify account and reacts to your musi
 * Lightweight web-based interface.
 
 ## Contributions
-Since this project is currently in a "fix-it" phase, contributions are welcome! If you have experience with the updated Spotify API or WebGL/Canvas visualizers, feel free to open an issue or submit a pull request.
+Since this project is currently in the under-construction phase, contributions are welcome! If you have experience with the updated Spotify API or WebGL/Canvas visualizers, feel free to open an issue or submit a pull request.
