@@ -3,210 +3,298 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPixelatedPass } from 'three/addons/postprocessing/RenderPixelatedPass.js';
 const canvas = document.getElementById('mainScreen');
 
-
-
-//Create scene with THREE
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 10, 0); 
+camera.position.set(0, 10, 0);
 camera.lookAt(0, 0, 0);
 
-//Center and style the spotify login button
-document.getElementById("login-button").style.position = 'absolute';
-document.getElementById("login-button").style.zIndex = '1';
-document.getElementById("login-button").style.top = '45%';
-document.getElementById("login-button").style.left = '43%';   
-document.getElementById("login-button").style.opacity = '0.8'; 
-document.getElementById("login-button").style.border = 'none';
-document.getElementById("login-button").style.padding = '10px 20px';
-document.getElementById("login-button").style.fontSize = '24px';
-document.getElementById("login-button").style.backgroundColor = '#31493aff'; 
-document.getElementById("login-button").style.color = 'white'; 
-document.getElementById("login-button").style.fontFamily = 'monospace';
+// Style login button
+const loginBtn = document.getElementById("login-button");
+loginBtn.style.position = 'absolute';
+loginBtn.style.zIndex = '1';
+loginBtn.style.top = '45%';
+loginBtn.style.left = '43%';
+loginBtn.style.opacity = '0.8';
+loginBtn.style.border = 'none';
+loginBtn.style.padding = '10px 20px';
+loginBtn.style.fontSize = '24px';
+loginBtn.style.backgroundColor = '#31493aff';
+loginBtn.style.color = 'white';
+loginBtn.style.fontFamily = 'monospace';
+loginBtn.style.cursor = 'pointer';
 
-//Make the renderer
+// Style share-audio button (hidden until login succeeds)
+const audioBtn = document.getElementById("share-audio-button");
+audioBtn.style.position = 'absolute';
+audioBtn.style.zIndex = '1';
+audioBtn.style.top = '45%';
+audioBtn.style.left = '40%';
+audioBtn.style.opacity = '0.8';
+audioBtn.style.border = 'none';
+audioBtn.style.padding = '10px 20px';
+audioBtn.style.fontSize = '24px';
+audioBtn.style.backgroundColor = '#31493aff';
+audioBtn.style.color = 'white';
+audioBtn.style.fontFamily = 'monospace';
+audioBtn.style.cursor = 'pointer';
+audioBtn.style.display = 'none';
+
 const renderer = new THREE.WebGLRenderer({ canvas: canvas });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-//Shaders
-const composer = new EffectComposer( renderer );
-const pixelPass = new RenderPixelatedPass( 3, scene, camera );
+const composer = new EffectComposer(renderer);
+const pixelPass = new RenderPixelatedPass(3, scene, camera);
 composer.addPass(pixelPass);
 
-//Check if the user has loged into spotify
 let isMusicPlaying = false;
 window.addEventListener('spotifyStateChange', (event) => {
-    //Update local variable based on the broadcast data
-    isMusicPlaying = event.detail.isPlaying;
+  isMusicPlaying = event.detail.isPlaying;
 });
 
+// --- Audio analysis state ---
 
-//Create cones, they will be used to react to the melody of the song
-const geometry = new THREE.ConeGeometry( 2, 2, 3);
-const material = new THREE.MeshBasicMaterial( { color: 0x00ff00, wireframe: true, } );
-const cone1 = new THREE.Mesh(geometry, material );
+let analyser = null;
+let frequencyData = null;
+let audioReady = false;
+
+const audioLevels = {
+  bass: 0,
+  mid: 0,
+  rms: 0,
+};
+
+// Smoothed values for visual interpolation
+const smoothed = {
+  bass: 0,
+  mid: 0,
+  rms: 0,
+};
+
+const SMOOTH_FACTOR = 0.15;
+
+// --- Audio capture via getDisplayMedia ---
+
+async function initAudioCapture() {
+  try {
+    // Some browsers require video:true for getDisplayMedia; we discard the video track
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: true,
+    });
+
+    // Stop the video track immediately — we only need audio
+    stream.getVideoTracks().forEach(t => t.stop());
+
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      console.warn("No audio track captured. Visuals will use fallback animation.");
+      return false;
+    }
+
+    const audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks));
+
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
+    source.connect(analyser);
+
+    frequencyData = new Uint8Array(analyser.frequencyBinCount);
+    audioReady = true;
+
+    // Clean up when the user stops sharing
+    audioTracks[0].addEventListener('ended', () => {
+      audioReady = false;
+      analyser = null;
+      frequencyData = null;
+      console.log("Audio sharing stopped.");
+    });
+
+    console.log("Audio capture active — visuals are now beat-reactive.");
+    return true;
+  } catch (err) {
+    console.warn("Audio capture declined or failed:", err.message);
+    return false;
+  }
+}
+
+// --- Frequency band extraction ---
+
+function updateAudioLevels() {
+  if (!audioReady || !analyser) return;
+
+  analyser.getByteFrequencyData(frequencyData);
+
+  const binCount = analyser.frequencyBinCount;
+  // With fftSize=2048 and sampleRate=48000, each bin ≈ 23Hz
+  // Bass: bins 1-10 (~23-230Hz), Mid: bins 10-80 (~230-1840Hz)
+  const bassEnd = Math.min(10, binCount);
+  const midStart = bassEnd;
+  const midEnd = Math.min(80, binCount);
+
+  let bassSum = 0;
+  for (let i = 1; i < bassEnd; i++) bassSum += frequencyData[i];
+  audioLevels.bass = bassSum / ((bassEnd - 1) * 255);
+
+  let midSum = 0;
+  for (let i = midStart; i < midEnd; i++) midSum += frequencyData[i];
+  audioLevels.mid = midSum / ((midEnd - midStart) * 255);
+
+  let totalSum = 0;
+  for (let i = 0; i < binCount; i++) totalSum += frequencyData[i];
+  audioLevels.rms = totalSum / (binCount * 255);
+
+  // Exponential smoothing
+  smoothed.bass = smoothed.bass * (1 - SMOOTH_FACTOR) + audioLevels.bass * SMOOTH_FACTOR;
+  smoothed.mid = smoothed.mid * (1 - SMOOTH_FACTOR) + audioLevels.mid * SMOOTH_FACTOR;
+  smoothed.rms = smoothed.rms * (1 - SMOOTH_FACTOR) + audioLevels.rms * SMOOTH_FACTOR;
+}
+
+// --- Share Audio button handler ---
+
+audioBtn.addEventListener('click', async () => {
+  audioBtn.disabled = true;
+  audioBtn.innerText = 'Waiting for share...';
+  const success = await initAudioCapture();
+  if (success) {
+    audioBtn.style.display = 'none';
+  } else {
+    audioBtn.disabled = false;
+    audioBtn.innerText = 'Share Audio (optional)';
+  }
+});
+
+// --- Three.js scene objects ---
+
+const geometry = new THREE.ConeGeometry(2, 2, 3);
+const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+const cone1 = new THREE.Mesh(geometry, material);
 scene.add(cone1);
 
-const cone2 = new THREE.Mesh(geometry, material );
-scene.add(cone2)
+const cone2 = new THREE.Mesh(geometry, material);
+scene.add(cone2);
 
-const cone3 = new THREE.Mesh(geometry, material );
-scene.add(cone3)
+const cone3 = new THREE.Mesh(geometry, material);
+scene.add(cone3);
 
-const cone4 = new THREE.Mesh(geometry, material );
-scene.add(cone4)
+const cone4 = new THREE.Mesh(geometry, material);
+scene.add(cone4);
 
-var up1 = true;
-var up2 = true;
-var up3 = true;
-var up4 = true;
-
-//var rotationSpeed = song bpm or something;
-//int melody - some variable that is increased by when the melody is going
-
-//particle cloud around the center
+// Particle ring
 const PARTICLE_COUNT = 5000;
-const RING_RADIUS = 5; 
-const RING_THICKNESS = 2; 
-
-const particleData = []; 
+const RING_RADIUS = 5;
+const RING_THICKNESS = 2;
+const particleData = [];
 
 function createParticleRing(scene) {
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(PARTICLE_COUNT * 3); // 3 numbers (x, y, z) per particle
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(PARTICLE_COUNT * 3);
 
-    //loop make each particle
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-        
-        // random pos in ring
-        const angle = Math.random() * Math.PI * 2;
-        const radius = RING_RADIUS + (Math.random() * RING_THICKNESS);
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = RING_RADIUS + (Math.random() * RING_THICKNESS);
 
-        
-        const x = Math.cos(angle) * radius;
-        const z = Math.sin(angle) * radius;
-        const y = 0;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const y = 0;
 
-        positions[i * 3] = x;
-        positions[i * 3 + 1] = y;
-        positions[i * 3 + 2] = z;
+    positions[i * 3] = x;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = z;
 
-        
-        particleData.push({
-            angle: angle,           
-            baseRadius: radius, 
-            driftSpeed: Math.random() * 2 + 0.5 
-        });
-    }
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-    //material
-    const material = new THREE.PointsMaterial({
-        color: 0x00ff00, 
-        size: 0.001,
-        transparent: true,
-        opacity: 0.8
+    particleData.push({
+      angle: angle,
+      baseRadius: radius,
+      driftSpeed: Math.random() * 2 + 0.5
     });
-    const particleSystem = new THREE.Points(geometry, material);
-    scene.add(particleSystem);
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-    return particleSystem;
+  const mat = new THREE.PointsMaterial({
+    color: 0x00ff00,
+    size: 0.001,
+    transparent: true,
+    opacity: 0.8
+  });
+  const particleSystem = new THREE.Points(geo, mat);
+  scene.add(particleSystem);
+  return particleSystem;
 }
+
 const partCloud = createParticleRing(scene);
+
 function updateParticleRing(particleSystem, beatIntensity) {
-    const positions = particleSystem.geometry.attributes.position.array;
+  const positions = particleSystem.geometry.attributes.position.array;
 
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const data = particleData[i];
-        const currentRadius = data.baseRadius + (beatIntensity * 5 * data.driftSpeed);
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const data = particleData[i];
+    const currentRadius = data.baseRadius + (beatIntensity * 5 * data.driftSpeed);
 
-        const x = Math.cos(data.angle) * currentRadius;
-        const z = Math.sin(data.angle) * currentRadius;
+    const x = Math.cos(data.angle) * currentRadius;
+    const z = Math.sin(data.angle) * currentRadius;
 
-        positions[i * 3] = x;
-        positions[i * 3 + 2] = z;
-    }
-    particleSystem.geometry.attributes.position.needsUpdate = true;
+    positions[i * 3] = x;
+    positions[i * 3 + 2] = z;
+  }
+  particleSystem.geometry.attributes.position.needsUpdate = true;
 }
 
-var bass = 0;
+// --- Fallback oscillator (used when no audio is shared) ---
 
-//animate everything
+let fallbackBass = 0;
+let fallbackUp = true;
+
+function updateFallbackBass() {
+  if (fallbackUp) {
+    fallbackBass += 0.01;
+    if (fallbackBass >= 0.9) fallbackUp = false;
+  } else {
+    fallbackBass -= 0.1;
+    if (fallbackBass <= 0.1) fallbackUp = true;
+  }
+}
+
+// --- Animation loop ---
+
 function animate() {
-  requestAnimationFrame(animate); 
-    //Only animate if music is playing
-  if(isMusicPlaying){
-  cone1.rotation.x += 0.01; //* rotationSpeed for all rotates
-  cone1.rotation.y += 0.01;
-  cone2.rotation.x -= 0.01;
-  cone2.rotation.y -= 0.01;
-  cone3.rotation.x += 0.0051;
-  cone3.rotation.y += 0.0051;
-  cone4.rotation.x -= 0.02;
-  cone4.rotation.y += 0.01;
+  requestAnimationFrame(animate);
 
-  //Cone sizing, change based on the melody
-  /*
-  if(up1){
-	  cone1.scale.y+=0.05;
-	  if(cone1.scale.y>=3) //*melody
-	  {
-		  up1 = false;
-	  }
-  }
-  else{
-	  cone1.scale.y-=0.05;
-	  if(cone1.scale.y<=1){
-		  up1 = true;
-	  }
-  }
+  if (isMusicPlaying) {
+    // Update audio data if available
+    if (audioReady) {
+      updateAudioLevels();
+    } else {
+      updateFallbackBass();
+    }
 
-  if(up2){
-	  cone2.scale.y+=0.03;
-	  if(cone2.scale.y>=4) //*melody
-	  {
-		  up2 = false;
-	  }
-  }
-  else{
-	  cone2.scale.y-=0.03;
-	  if(cone2.scale.y<=0.2){
-		  up2 = true;
-	  }
+    const bassVal = audioReady ? smoothed.bass : fallbackBass;
+    const midVal = audioReady ? smoothed.mid : fallbackBass * 0.6;
+    const rmsVal = audioReady ? smoothed.rms : fallbackBass * 0.4;
+
+    // Cone rotation (unchanged)
+    cone1.rotation.x += 0.01;
+    cone1.rotation.y += 0.01;
+    cone2.rotation.x -= 0.01;
+    cone2.rotation.y -= 0.01;
+    cone3.rotation.x += 0.0051;
+    cone3.rotation.y += 0.0051;
+    cone4.rotation.x -= 0.02;
+    cone4.rotation.y += 0.01;
+
+    // Cone scaling driven by loudness (cone1, cone2) and melody/mid (cone3, cone4)
+    const loudnessScale = 1.0 + rmsVal * 4.0;
+    const melodyScale = 1.0 + midVal * 5.0;
+
+    cone1.scale.y = THREE.MathUtils.lerp(cone1.scale.y, loudnessScale, 0.12);
+    cone2.scale.y = THREE.MathUtils.lerp(cone2.scale.y, loudnessScale * 1.2, 0.10);
+    cone3.scale.y = THREE.MathUtils.lerp(cone3.scale.y, melodyScale, 0.14);
+    cone4.scale.y = THREE.MathUtils.lerp(cone4.scale.y, melodyScale * 0.8, 0.10);
+
+    // Particle ring expansion driven by bass
+    updateParticleRing(partCloud, bassVal);
+    partCloud.rotation.y += bassVal * 0.02;
   }
 
-  if(up3){
-	  cone3.scale.z+=0.03;
-	  if(cone3.scale.z>=4) //*melody
-	  {
-		  up3 = false;
-	  }
-  }
-  else{
-	  cone3.scale.z-=0.03;
-	  if(cone3.scale.z<=-2){
-		  up3 = true;
-	  }
-  }
-    */
-
-  if(up4){
-	  bass+=0.01
-	  if(bass>=0.9)
-	  {
-		  up4 = false;
-	  }
-  }
-  else{
-	  bass -= 0.1;
-	  if(bass<=0.1){
-		  up4 = true;
-	  }
-  }
-
-  
-  updateParticleRing(partCloud, bass)
-  }
   composer.render();
 }
 
