@@ -229,10 +229,16 @@ async function getPlaybackState() {
 
   const data = await response.json();
 
+  const albumImages = data.item?.album?.images;
+  const albumImageUrl = albumImages?.length
+    ? albumImages[albumImages.length - 1].url
+    : null;
+
   return {
     isPlaying: data.is_playing,
     progressMs: data.progress_ms,
-    trackId: data.item?.id
+    trackId: data.item?.id,
+    albumImageUrl,
   };
 }
 
@@ -254,7 +260,9 @@ function startPolling() {
       const event = new CustomEvent('spotifyStateChange', {
         detail: {
           isPlaying: state.isPlaying,
-          progress: state.progressMs
+          progress: state.progressMs,
+          trackId: state.trackId,
+          albumImageUrl: state.albumImageUrl,
         }
       });
       window.dispatchEvent(event);

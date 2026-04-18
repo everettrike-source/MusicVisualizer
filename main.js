@@ -47,9 +47,130 @@ const pixelPass = new RenderPixelatedPass(3, scene, camera);
 composer.addPass(pixelPass);
 
 let isMusicPlaying = false;
+let currentTrackId = null;
+
+const DEFAULT_COLOR = new THREE.Color(0x00ff00);
+const targetConeColor = new THREE.Color(0x00ff00);
+const targetParticleColor = new THREE.Color(0x00ff00);
+const currentConeColor = new THREE.Color(0x00ff00);
+const currentParticleColor = new THREE.Color(0x00ff00);
+const COLOR_LERP_SPEED = 0.04;
+
 window.addEventListener('spotifyStateChange', (event) => {
   isMusicPlaying = event.detail.isPlaying;
+
+  const { trackId, albumImageUrl } = event.detail;
+  if (trackId && trackId !== currentTrackId) {
+    currentTrackId = trackId;
+    if (albumImageUrl) {
+      extractColorsFromImage(albumImageUrl).then(colors => {
+        targetConeColor.copy(colors.primary);
+        targetParticleColor.copy(colors.secondary);
+      }).catch(() => {
+        targetConeColor.copy(DEFAULT_COLOR);
+        targetParticleColor.copy(DEFAULT_COLOR);
+      });
+    } else {
+      targetConeColor.copy(DEFAULT_COLOR);
+      targetParticleColor.copy(DEFAULT_COLOR);
+    }
+  }
 });
+
+// --- Album art color extraction ---
+
+function extractColorsFromImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const size = 64;
+        const cvs = document.createElement('canvas');
+        cvs.width = size;
+        cvs.height = size;
+        const ctx = cvs.getContext('2d');
+        ctx.drawImage(img, 0, 0, size, size);
+        const imageData = ctx.getImageData(0, 0, size, size);
+        const pixels = [];
+
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          const r = imageData.data[i];
+          const g = imageData.data[i + 1];
+          const b = imageData.data[i + 2];
+          const brightness = r * 0.299 + g * 0.587 + b * 0.114;
+          if (brightness > 30 && brightness < 220) {
+            pixels.push([r, g, b]);
+          }
+        }
+
+        if (pixels.length < 10) {
+          resolve({ primary: DEFAULT_COLOR.clone(), secondary: DEFAULT_COLOR.clone() });
+          return;
+        }
+
+        const palette = medianCut(pixels, 0, 3);
+        const sorted = palette
+          .map(c => ({ color: c, saturation: colorSaturation(c) }))
+          .sort((a, b) => b.saturation - a.saturation)
+          .map(e => e.color);
+
+        const primary = new THREE.Color().setRGB(sorted[0][0] / 255, sorted[0][1] / 255, sorted[0][2] / 255);
+        const secondary = sorted.length > 1
+          ? new THREE.Color().setRGB(sorted[1][0] / 255, sorted[1][1] / 255, sorted[1][2] / 255)
+          : primary.clone();
+
+        resolve({ primary, secondary });
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function medianCut(pixels, depth, maxDepth) {
+  if (depth >= maxDepth || pixels.length === 0) {
+    const avg = [0, 0, 0];
+    for (const p of pixels) {
+      avg[0] += p[0];
+      avg[1] += p[1];
+      avg[2] += p[2];
+    }
+    const n = pixels.length || 1;
+    return [[Math.round(avg[0] / n), Math.round(avg[1] / n), Math.round(avg[2] / n)]];
+  }
+
+  let maxRange = 0;
+  let splitChannel = 0;
+  for (let ch = 0; ch < 3; ch++) {
+    let min = 255, max = 0;
+    for (const p of pixels) {
+      if (p[ch] < min) min = p[ch];
+      if (p[ch] > max) max = p[ch];
+    }
+    if (max - min > maxRange) {
+      maxRange = max - min;
+      splitChannel = ch;
+    }
+  }
+
+  pixels.sort((a, b) => a[splitChannel] - b[splitChannel]);
+  const mid = Math.floor(pixels.length / 2);
+
+  return [
+    ...medianCut(pixels.slice(0, mid), depth + 1, maxDepth),
+    ...medianCut(pixels.slice(mid), depth + 1, maxDepth),
+  ];
+}
+
+function colorSaturation([r, g, b]) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === 0) return 0;
+  return (max - min) / max;
+}
 
 // --- Audio analysis state ---
 
@@ -294,6 +415,11 @@ function animate() {
     updateParticleRing(partCloud, bassVal);
     partCloud.rotation.y += bassVal * 0.02;
   }
+
+  currentConeColor.lerp(targetConeColor, COLOR_LERP_SPEED);
+  currentParticleColor.lerp(targetParticleColor, COLOR_LERP_SPEED);
+  material.color.copy(currentConeColor);
+  partCloud.material.color.copy(currentParticleColor);
 
   composer.render();
 }
