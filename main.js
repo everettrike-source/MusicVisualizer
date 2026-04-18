@@ -63,10 +63,13 @@ window.addEventListener('spotifyStateChange', (event) => {
   if (trackId && trackId !== currentTrackId) {
     currentTrackId = trackId;
     if (albumImageUrl) {
+      const requestedTrackId = trackId;
       extractColorsFromImage(albumImageUrl).then(colors => {
+        if (currentTrackId !== requestedTrackId) return;
         targetConeColor.copy(colors.primary);
         targetParticleColor.copy(colors.secondary);
       }).catch(() => {
+        if (currentTrackId !== requestedTrackId) return;
         targetConeColor.copy(DEFAULT_COLOR);
         targetParticleColor.copy(DEFAULT_COLOR);
       });
@@ -285,6 +288,100 @@ audioBtn.addEventListener('click', async () => {
   }
 });
 
+// --- Wireframe tunnel / wormhole background ---
+
+const TUNNEL_RING_COUNT = 20;
+const TUNNEL_SPOKE_COUNT = 24;
+const TUNNEL_RING_SEGMENTS = 64;
+const TUNNEL_MIN_RADIUS = 0.3;
+const TUNNEL_MAX_RADIUS = 18;
+
+const tunnelRingData = [];
+
+function radiusFromProgress(progress) {
+  return TUNNEL_MIN_RADIUS + (TUNNEL_MAX_RADIUS - TUNNEL_MIN_RADIUS) * progress * progress;
+}
+
+function createTunnel() {
+  const ringVertCount = TUNNEL_RING_COUNT * TUNNEL_RING_SEGMENTS * 2;
+  const spokeVertCount = TUNNEL_SPOKE_COUNT * 2;
+  const totalVerts = ringVertCount + spokeVertCount;
+  const positions = new Float32Array(totalVerts * 3);
+
+  for (let i = 0; i < TUNNEL_RING_COUNT; i++) {
+    const progress = i / TUNNEL_RING_COUNT;
+    tunnelRingData.push({ progress });
+    const radius = radiusFromProgress(progress);
+    const baseIdx = i * TUNNEL_RING_SEGMENTS * 2 * 3;
+
+    for (let s = 0; s < TUNNEL_RING_SEGMENTS; s++) {
+      const a0 = (s / TUNNEL_RING_SEGMENTS) * Math.PI * 2;
+      const a1 = ((s + 1) / TUNNEL_RING_SEGMENTS) * Math.PI * 2;
+      const idx = baseIdx + s * 6;
+      positions[idx]     = Math.cos(a0) * radius;
+      positions[idx + 1] = 0;
+      positions[idx + 2] = Math.sin(a0) * radius;
+      positions[idx + 3] = Math.cos(a1) * radius;
+      positions[idx + 4] = 0;
+      positions[idx + 5] = Math.sin(a1) * radius;
+    }
+  }
+
+  const spokeBase = ringVertCount * 3;
+  for (let i = 0; i < TUNNEL_SPOKE_COUNT; i++) {
+    const angle = (i / TUNNEL_SPOKE_COUNT) * Math.PI * 2;
+    const idx = spokeBase + i * 6;
+    positions[idx]     = Math.cos(angle) * TUNNEL_MIN_RADIUS;
+    positions[idx + 1] = 0;
+    positions[idx + 2] = Math.sin(angle) * TUNNEL_MIN_RADIUS;
+    positions[idx + 3] = Math.cos(angle) * TUNNEL_MAX_RADIUS;
+    positions[idx + 4] = 0;
+    positions[idx + 5] = Math.sin(angle) * TUNNEL_MAX_RADIUS;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+  const mat = new THREE.LineBasicMaterial({
+    color: 0x00ff00,
+    transparent: true,
+    opacity: 0.25,
+    depthWrite: false,
+  });
+
+  const lines = new THREE.LineSegments(geo, mat);
+  lines.renderOrder = -1;
+  return lines;
+}
+
+const tunnelMesh = createTunnel();
+scene.add(tunnelMesh);
+
+function updateTunnel(speed) {
+  const positions = tunnelMesh.geometry.attributes.position.array;
+
+  for (let i = 0; i < TUNNEL_RING_COUNT; i++) {
+    const ring = tunnelRingData[i];
+    ring.progress += speed;
+    if (ring.progress >= 1) ring.progress -= 1;
+
+    const radius = radiusFromProgress(ring.progress);
+    const baseIdx = i * TUNNEL_RING_SEGMENTS * 2 * 3;
+
+    for (let s = 0; s < TUNNEL_RING_SEGMENTS; s++) {
+      const a0 = (s / TUNNEL_RING_SEGMENTS) * Math.PI * 2;
+      const a1 = ((s + 1) / TUNNEL_RING_SEGMENTS) * Math.PI * 2;
+      const idx = baseIdx + s * 6;
+      positions[idx]     = Math.cos(a0) * radius;
+      positions[idx + 2] = Math.sin(a0) * radius;
+      positions[idx + 3] = Math.cos(a1) * radius;
+      positions[idx + 5] = Math.sin(a1) * radius;
+    }
+  }
+
+  tunnelMesh.geometry.attributes.position.needsUpdate = true;
+}
+
 // --- Three.js scene objects ---
 
 const geometry = new THREE.ConeGeometry(2, 2, 3);
@@ -414,12 +511,18 @@ function animate() {
     // Particle ring expansion driven by bass
     updateParticleRing(partCloud, bassVal);
     partCloud.rotation.y += bassVal * 0.02;
+
+    // Tunnel scrolls outward and spins opposite to particle ring
+    const tunnelSpeed = 0.003 + rmsVal * 0.008;
+    updateTunnel(tunnelSpeed);
+    tunnelMesh.rotation.y -= 0.001 + rmsVal * 0.005;
   }
 
   currentConeColor.lerp(targetConeColor, COLOR_LERP_SPEED);
   currentParticleColor.lerp(targetParticleColor, COLOR_LERP_SPEED);
   material.color.copy(currentConeColor);
   partCloud.material.color.copy(currentParticleColor);
+  tunnelMesh.material.color.copy(currentConeColor);
 
   composer.render();
 }
